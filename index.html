@@ -660,6 +660,7 @@ const ControlPanel = React.memo(({ isVisible, state, setState, setPanelOpen, gen
 export default function App() {
   const [panelOpen, setPanelOpen] = React.useState(false);
   const [isAdmin, setIsAdmin] = React.useState(false);
+  const [pageBgClass, setPageBgClass] = React.useState('bg-gray-900 min-h-screen p-8 flex flex-col items-center justify-center');
   const [state, setState] = React.useState({
     theme: 'protoss',
     style: 'sc1',
@@ -686,12 +687,17 @@ export default function App() {
   const [prediction, setPrediction] = React.useState("AI가 경기 예측을 준비 중입니다.");
   const [isCallingGemini, setIsCallingGemini] = React.useState(false);
 
-  // 최초 렌더링 시 localStorage에서 상태 로드 및 관리자 모드 확인
+  // 최초 렌더링 시 localStorage에서 상태 로드 및 관리자/OBS 모드 확인
   React.useEffect(() => {
     const qs = new URLSearchParams(window.location.search);
     if (qs.get('admin') === 'true') {
       setIsAdmin(true);
       setPanelOpen(true);
+    }
+    
+    // ***수정***: style=clear 파라미터가 있으면 배경을 투명하게 만듭니다.
+    if (qs.get('style') === 'clear') {
+      setPageBgClass(''); // 배경 클래스를 제거하여 투명하게 만듦
     }
 
     const snaps = loadJSON(SNAP_KEY, {});
@@ -818,7 +824,7 @@ export default function App() {
   };
 
   return (
-    <div className="font-sans text-white bg-gray-900 min-h-screen p-8 flex flex-col items-center justify-center">
+    <div className={`font-sans text-white ${pageBgClass}`}>
       <div className="fixed" style={{top: state.y || '20px', left: '50%', transform: `translateX(-50%) scale(${state.scale || 1})`, transformOrigin: 'top center'}}>
         <Scoreboard state={state} />
       </div>
