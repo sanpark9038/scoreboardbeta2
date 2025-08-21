@@ -21,7 +21,7 @@
 <body>
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script type="text/babel" data-presets="env,react">
     // --- view-mode detection for OBS/Viewer ---
     const __qs = new URLSearchParams(location.search);
 // also read hash for apps that strip query (?view=1) like some overlay browsers
@@ -616,5 +616,4 @@ window.__IS_VIEW = __isViewFlag;
         if(isView && __room){
           const unsub = cloudSubscribe(__room, (s)=> setState(prev=> ({...prev, ...s})) );
           return ()=>{ try{ unsub && unsub(); }catch(_){} };
-        }
-      },[isView])
+  
