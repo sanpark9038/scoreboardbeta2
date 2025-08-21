@@ -23,16 +23,26 @@
 
   <script type="text/babel">
     // --- view-mode detection for OBS/Viewer ---
-    const __qs = new URLSearchParams(window.location.search);
-    window.__IS_VIEW = (__qs.get('view')==='1' || __qs.get('view')==='true' || __qs.get('mode')==='view');
+    const __qs = new URLSearchParams(location.search);
+// also read hash for apps that strip query (?view=1) like some overlay browsers
+const __hash = (location.hash || '').toLowerCase();
+const __hashParams = new URLSearchParams(__hash.startsWith('#') ? __hash.slice(1) : __hash);
+const __isViewFlag = (
+  __qs.has('view') ||
+  __qs.get('view')==='1' || __qs.get('view')==='true' || __qs.get('mode')==='view' ||
+  __hash.includes('view') ||
+  __hashParams.get('view')==='1' || __hashParams.get('mode')==='view'
+);
+window.__IS_VIEW = __isViewFlag;
     // --- simple realtime sync (same browser) via BroadcastChannel ---
     window.__BC_ENABLED = 'BroadcastChannel' in window;
     window.__BC = window.__BC_ENABLED ? new BroadcastChannel('fs-sync-v1') : null;
     if(window.__IS_VIEW){
-      // make page fully transparent in viewer mode
-      document.documentElement.style.background = 'transparent';
-      document.body.style.background = 'transparent';
-    }
+  // make page fully transparent in viewer mode (stronger enforcement for some overlay browsers)
+  document.documentElement.style.setProperty('background','transparent','important');
+  document.body.style.setProperty('background','transparent','important');
+  document.body.style.setProperty('background-color','transparent','important');
+}
 
     // --- WebSocket (LAN sync across different PCs) ---
     const __wsParam = __qs.get('ws');
@@ -62,7 +72,10 @@
     // 1) Replace the placeholder below with your Firebase Web App config
     // window.__FB_CONFIG = { apiKey:"...", authDomain:"...", projectId:"...", appId:"..." };
     window.__FB_CONFIG = window.__FB_CONFIG || null; // keep null until you paste your config
-    const __room = __qs.get('room') || null; // e.g., ?room=match123
+    const getParam = (k)=> (__qs.get(k) || __hashParams.get(k));
+    const __room = getParam('room') || null; // e.g., room=match123 (shared for Firebase/GS)
+    const __GS_URL = getParam('gs') || null; // Google Apps Script Web App URL (/exec)
+    const __GS_SECRET = getParam('secret') || null; // optional write secret
     window.__FIREBASE_ENABLED = !!(window.firebase && window.__FB_CONFIG);
     if(window.__FIREBASE_ENABLED){
       firebase.initializeApp(window.__FB_CONFIG);
@@ -80,7 +93,37 @@
       __publishTimer=setTimeout(()=>{
         const ref = window.__DB.collection('rooms').doc(roomId);
         ref.set({ state, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge:true }).catch(()=>{});
-      }, 60); // small debounce to reduce writes
+      }, 60);
+    }
+
+    // --- Google Apps Script relay (JSONP poll + no‑cors POST) ---
+    window.__GS_ENABLED = !!__GS_URL;
+    function gsPublish(state){
+      if(!window.__GS_ENABLED) return;
+      const url = __GS_URL + '?' + new URLSearchParams({
+        room: __room || 'default',
+        ...( __GS_SECRET ? {secret: __GS_SECRET} : {} ),
+      }).toString();
+      try{
+        fetch(url, { method:'POST', mode:'no-cors', body: JSON.stringify(state) });
+      }catch(_){}}
+    function gsSubscribe(onState){
+      if(!window.__GS_ENABLED) return ()=>{};
+      let timer=null, seq=0;
+      const poll = ()=>{
+        const cb = `__GS_CB_${Date.now()}_${(seq++)}`;
+        window[cb] = (data)=>{ try{ if(data && typeof data==='object'){ onState(data); } } finally{ try{ delete window[cb]; }catch(_){} } };
+        const qs = new URLSearchParams({ room: __room || 'default', callback: cb });
+        const s = document.createElement('script');
+        s.src = __GS_URL + '?' + qs.toString();
+        s.async = true;
+        s.onload = ()=> s.remove();
+        s.onerror = ()=> s.remove();
+        document.head.appendChild(s);
+      };
+      poll();
+      timer = setInterval(poll, 1000);
+      return ()=> { try{ clearInterval(timer); }catch(_){} };
     }
 
     const THEMES = {
@@ -544,6 +587,10 @@
       React.useEffect(()=>{
         if(!isView && __room){ cloudPublish(__room, state); }
       },[state,isView]);
+      // controller → Google Apps Script publish
+      React.useEffect(()=>{
+        if(!isView && window.__GS_ENABLED){ gsPublish(state); }
+      },[state,isView]);
 
       // viewer listens and applies updates in realtime
       React.useEffect(()=>{
@@ -570,22 +617,4 @@
           const unsub = cloudSubscribe(__room, (s)=> setState(prev=> ({...prev, ...s})) );
           return ()=>{ try{ unsub && unsub(); }catch(_){} };
         }
-      },[isView]);
-
-      return (
-        <div className={`font-sans text-white ${isView? 'min-h-0 p-0':'min-h-screen p-8'} flex`} style={{background: isView ? 'transparent' : undefined}}>
-          <div className="fixed" style={{top: state.y || '20px', left: '50%', transform: `translateX(-50%) scale(${state.scale || 1})`, transformOrigin: 'top center'}}>
-            <Scoreboard state={state} />
-          </div>
-
-          {!isView && (<button className="fixed top-4 right-4 z-[2147483650] w-9 h-9 rounded-full bg-blue-400 text-gray-900 font-bold flex items-center justify-center border-none shadow-lg cursor-pointer" onClick={()=> setPanelOpen(!panelOpen)}>⚙</button>)}
-
-          {!isView && (<ControlPanel isVisible={panelOpen} state={state} setState={setState} setPanelOpen={setPanelOpen} />)}
-        </div>
-      );
-    }
-
-    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-  </script>
-</body>
-</html>
+      },[isView])
